@@ -29,10 +29,26 @@ namespace MockQueryable
 		public IQueryProvider Provider => this;
 
 		public IQueryable CreateQuery(Expression expression)
-			=> this.CreateInstanceFromExpression<T>(expression);
+		{
+			if (expression is MethodCallExpression m)
+			{
+				var resultType = m.Method.ReturnType; // it should be IQueryable<T>
+				var elementType = resultType.GetGenericArguments().First();
+				var methodInfo = typeof(IQueryProvider)
+					.GetMethods()
+					.First(method => method.Name == nameof(IQueryProvider.CreateQuery) && method.IsGenericMethod)
+					.MakeGenericMethod(elementType);
+				return (IQueryable) methodInfo.Invoke(this, new[] { expression });
+			}
+
+			return CreateQuery<T>(expression);
+		}
 
 		public IQueryable<TEntity> CreateQuery<TEntity>(Expression expression)
-			=> this.CreateInstanceFromExpression<TEntity>(expression);
+		{
+			var queryType = this.GetType().GetGenericTypeDefinition().MakeGenericType(typeof(TEntity));
+			return (IQueryable<TEntity>)Activator.CreateInstance(queryType, expression);
+		}
 
 		public object Execute(Expression expression)
 			=> CompileExpressionItem<object>(expression);
@@ -45,8 +61,6 @@ namespace MockQueryable
 
 		IEnumerator IEnumerable.GetEnumerator()
 			=> this._enumerable.GetEnumerator();
-
-		protected abstract IQueryable<TEntity> CreateInstanceFromExpression<TEntity>(Expression expression);
 
 		private static TResult CompileExpressionItem<TResult>(Expression expression)
 		{
